@@ -11,8 +11,13 @@
 #include <iostream>
 #include <string.h>
 #include <vector>
+#include <unistd.h>
+#include <arpa/inet.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/time.h>
+#include <netinet/ip.h>
+#include <netinet/ip_icmp.h>
 #include <netdb.h>
 #include <stdio.h>
 #include <errno.h>
@@ -50,7 +55,11 @@ private:
 	sockaddr_in* m_from_addr;
 
 	bool ping(string& host_or_ip, int maxpacketsize, ping_result& pingresult);
-	bool getsockaddr(const char* host_or_ip);
+	bool getsockaddr(const string& host_or_ip);
+	bool sendpacket();
+	bool recvpacket(ping_result& pingresult);
+	int packIcmp(int seq, struct icmp* icmppac);
+	unsigned short getcksum(unsigned short* icmppac, int packsize);
 public:
 	Ping();
 	~Ping(){}

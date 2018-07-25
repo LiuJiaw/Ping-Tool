@@ -36,27 +36,75 @@ bool Ping::ping(string& host_or_ip, int maxpacketsize, ping_result& pingresult){
 		return false;
 	}
 
-	if(!getsockaddr(host_or_ip, &m_dest_addr)){
+	if(!getsockaddr(host_or_ip.c_str())){
 		pingresult.error_information = "无法解析的host";
 		return false;
 	}
 
+	pingresult.ip = inet_ntoa(m_dest_addr->sin_addr);
+	sendpacket();
+	recvpacket(pingresult);
+	pingresult.has_sent = m_hassent;
+	pingresult.has_received = m_hasreceived;
+	close(m_sockfd);
+	return true;
 }
 
-bool Ping::getsockaddr(const char* host_or_ip){
-	if(inet_addr(host_or_ip) == INADDR_NONE){
+bool Ping::getsockaddr(const string& host_or_ip){
+	if(inet_addr(host_or_ip.c_str()) == INADDR_NONE){
 		//说明是主机名
 		struct hostent *host;
-		host = gethostbyname(host_or_ip);
+		host = gethostbyname(host_or_ip.c_str());
 		if(host == NULL)
 			return false;
 		memcpy(&m_dest_addr->sin_addr, host->h_addr_list[0], host->h_length);
 	}
 	else{
-		if(!inet_aton(host_or_ip, &m_dest_addr->sin_addr))
+		if(!inet_aton(host_or_ip.c_str(), &m_dest_addr->sin_addr))
 			return false;
 	}
 	return true;
 }
+
+bool Ping::sendpacket(){
+	int packetsize;
+	char* packethead;
+	while(m_hassent < 3){
+		m_hassent++;
+		m_seq++;
+		packIcmp(m_seq, (struct icmp*)packethead);
+	}
+}
+
+int Ping::packIcmp(int seq, struct icmp* icmppac){
+	icmppac->icmp_type = ICMP_ECHO;
+	icmppac->icmp_code = 0;
+	icmppac->icmp_cksum = 0;
+	icmppac->icmp_hun.ih_idseq.icd_seq = seq;
+	icmppac->icmp_hun.ih_idseq.icd_id = m_pid;
+	gettimeofday((struct timeval*)icmppac->icmp_dun.id_data, NULL);
+	int packsize = m_datalen+8;
+	icmppac->icmp_cksum = getcksum((unsigned short*) icmppac, packsize);
+}
+
+unsigned short getcksum(unsigned short* icmppac, int packsize){
+	int sum = 0;
+	while((packsize = packsize-2)>=0){
+		sum += *icmppac;
+		icmppac++;
+	}
+	if(packsize == -1){
+		unsigned short tmp = 0;
+		*(char*)&tmp = *(char*)icmppac;
+		sum += *tmp;
+	}
+	while(sum>>16){
+		sum = (sum>>16) + (sum&0xffff);
+	}
+	sum = ~sum;
+	return sum;
+}
+
+
 
 

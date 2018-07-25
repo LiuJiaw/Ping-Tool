@@ -25,7 +25,23 @@ int main(){
 
 	for(int i=0; i<4; i++){
 		respond = ping.ping(host_or_ip, 1, pingresult);
+		if(i==0){
+			cout<<"PING "<<host_or_ip<<"("<<pingresult.ip<<"):"<<pingresult.datalen<<"bytes data in ICMP packets."<<endl;
+		}
+		if(!respond){
+			cout<<pingresult.error_information<<endl;
+			break;
+		}
+		show_pingresult(pingresult);
+		has_sent += pingresult.has_sent;
+		has_received += pingresult.has_received;
 	}
+
+	if(respond){
+		cout<<has_sent<<"packets transmitted,"<<has_received<< " received , "<<(has_sent-has_received)/has_sent<< "% lost"<<endl;
+	}
+
+	return 0;
 }
 
 
