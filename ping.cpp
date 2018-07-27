@@ -74,6 +74,7 @@ bool Ping::sendpacket(){
 		m_seq++;
 		packIcmp(m_seq, (struct icmp*)packethead);
 	}
+	return true;
 }
 
 int Ping::packIcmp(int seq, struct icmp* icmppac){
@@ -85,9 +86,10 @@ int Ping::packIcmp(int seq, struct icmp* icmppac){
 	gettimeofday((struct timeval*)icmppac->icmp_dun.id_data, NULL);
 	int packsize = m_datalen+8;
 	icmppac->icmp_cksum = getcksum((unsigned short*) icmppac, packsize);
+	return packsize;
 }
 
-unsigned short getcksum(unsigned short* icmppac, int packsize){
+unsigned short Ping::getcksum(unsigned short* icmppac, int packsize){
 	int sum = 0;
 	while((packsize = packsize-2)>=0){
 		sum += *icmppac;
@@ -103,6 +105,56 @@ unsigned short getcksum(unsigned short* icmppac, int packsize){
 	}
 	sum = ~sum;
 	return sum;
+}
+
+bool Ping::recvpacket(ping_result& pingresult){
+	struct fd_set fdset;
+	FD_ZERO(&fdset);
+	struct timeval timeout;
+	timeout.tv_sec = 0, timeout.tv_usec = 5;
+	struct icmp_echo_reply icmpechoreply;
+	int fdnum = 0, length = 0;
+	char* recvpacket;
+	socklen_t fromaddrlen = sizeof(m_from_addr);
+	for(int i=0; i<3; i++){
+		FD_SET(m_sockfd, &fdset);
+		fdnum = select(m_sockfd+1, &fdset, NULL, NULL, &timeout);
+		if(fdnum == -1){
+			perror("select error");
+			continue;
+		}
+		if(fdnum == 0){
+			icmpechoreply.isreply = false;
+			pingresult.IcmpEchoReplys.push_back(icmpechoreply);
+			continue;
+		}
+		if(FD_ISSET(m_sockfd, &fdset)){
+			length = recvfrom(m_sockfd, recvpacket, sizeof(char*)*4096, 0,(struct sockaddr*)&m_from_addr, &fromaddrlen );
+			if(length < 0){
+				if(errno == EINTR)
+					continue;
+				perror("recvfrom error");
+				continue;
+			}
+			icmpechoreply.addr = inet_ntoa(m_from_addr);
+			if(icmpechoreply.addr != pingresult.ip){
+				i--;
+				continue;
+			}
+		}
+		if(unpackIcmp(recvpacket, sizeof(char*)*4096, &icmpechoreply) == -1){
+			i--;
+			continue;
+		}
+		icmpechoreply.isreply = true;
+		pingresult.IcmpEchoReplys.push_back(icmpechoreply);
+		m_hasreceived++;
+	}
+	return true;
+}
+
+bool Ping::unpackIcmp(const char* recvpacket, int packlen, icmp_echo_reply* icmpechoreply){
+
 }
 
 

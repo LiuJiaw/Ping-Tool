@@ -38,7 +38,7 @@ struct icmp_echo_reply{
 	int len;
 	int ttl;
 	int rtt;
-	bool isempty;
+	bool isreply;
 	string addr;
 };
 
@@ -60,6 +60,7 @@ private:
 	bool recvpacket(ping_result& pingresult);
 	int packIcmp(int seq, struct icmp* icmppac);
 	unsigned short getcksum(unsigned short* icmppac, int packsize);
+	int unpackIcmp(const char* recvpacket, int len, icmp_echo_reply* icmpechoreply);
 public:
 	Ping();
 	~Ping(){}
