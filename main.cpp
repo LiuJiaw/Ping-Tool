@@ -9,6 +9,18 @@
 
 using namespace std;
 
+void show_pingresult(const ping_result& pingresult){
+	for (int i = 0; i < pingresult.IcmpEchoReplys.size(); i++) {
+		icmp_echo_reply reply = pingresult.IcmpEchoReplys[i];
+		if (reply.isreply) {
+			cout <<"长度:"<<reply.len <<"地址:"<< reply.addr.c_str() <<"序号:"<<reply.seq <<"存活时间:"<<reply.ttl <<"往返时间:"<< reply.rtt << endl;
+		}
+		else {
+			cout << "request timeout\n";
+		}
+	}
+}
+
 int main(){
 	//记录ip或host
 	string host_or_ip = "";
@@ -22,7 +34,6 @@ int main(){
 	Ping ping = Ping();
 	cout<<"请输入ip地址或域名"<<endl;
 	cin >> host_or_ip;
-
 	for(int i=0; i<4; i++){
 		respond = ping.ping(host_or_ip, 1, pingresult);
 		if(i==0){
@@ -38,7 +49,7 @@ int main(){
 	}
 
 	if(respond){
-		cout<<has_sent<<"packets transmitted,"<<has_received<< " received , "<<(has_sent-has_received)/has_sent<< "% lost"<<endl;
+		cout<<has_sent<<"packets transmitted,"<<has_received<< " received , "<<100*(has_sent-has_received)/has_sent<< "% lost"<<endl;
 	}
 
 	return 0;

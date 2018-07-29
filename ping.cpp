@@ -30,6 +30,7 @@ bool Ping::ping(string& host_or_ip, int maxpacketsize, ping_result& pingresult){
 		perror("在getprocolbyname中发生了一个错误");
 		return false;
 	}
+
 	if((m_sockfd = socket(AF_INET, SOCK_RAW, protocol->p_proto)) < 0){
 		extern int errno;
 		pingresult.error_information = strerror(errno);
@@ -41,7 +42,10 @@ bool Ping::ping(string& host_or_ip, int maxpacketsize, ping_result& pingresult){
 		return false;
 	}
 
-	pingresult.ip = inet_ntoa(m_dest_addr->sin_addr);
+	int size = 50*1024;
+	setsockopt(m_sockfd,SOL_SOCKET,SO_RCVBUF,&size,sizeof(size) );
+
+	pingresult.ip = inet_ntoa(m_dest_addr.sin_addr);
 	sendpacket();
 	recvpacket(pingresult);
 	pingresult.has_sent = m_hassent;
@@ -57,10 +61,10 @@ bool Ping::getsockaddr(const string& host_or_ip){
 		host = gethostbyname(host_or_ip.c_str());
 		if(host == NULL)
 			return false;
-		memcpy(&m_dest_addr->sin_addr, host->h_addr_list[0], host->h_length);
+		memcpy(&m_dest_addr.sin_addr, host->h_addr, host->h_length);
 	}
 	else{
-		if(!inet_aton(host_or_ip.c_str(), &m_dest_addr->sin_addr))
+		if(!inet_aton(host_or_ip.c_str(), &m_dest_addr.sin_addr))
 			return false;
 	}
 	return true;
@@ -68,11 +72,14 @@ bool Ping::getsockaddr(const string& host_or_ip){
 
 bool Ping::sendpacket(){
 	int packetsize;
-	char* packethead;
 	while(m_hassent < 3){
 		m_hassent++;
 		m_seq++;
-		packIcmp(m_seq, (struct icmp*)packethead);
+		packetsize = packIcmp(m_seq, (struct icmp*)m_sendpacket);
+		if( sendto(m_sockfd, m_sendpacket, packetsize, 0, (struct sockaddr*)&m_dest_addr, sizeof(m_dest_addr)) <0){
+			perror("sendto error");
+			continue;
+		}
 	}
 	return true;
 }
@@ -98,7 +105,7 @@ unsigned short Ping::getcksum(unsigned short* icmppac, int packsize){
 	if(packsize == -1){
 		unsigned short tmp = 0;
 		*(char*)&tmp = *(char*)icmppac;
-		sum += *tmp;
+		sum += tmp;
 	}
 	while(sum>>16){
 		sum = (sum>>16) + (sum&0xffff);
@@ -108,13 +115,12 @@ unsigned short Ping::getcksum(unsigned short* icmppac, int packsize){
 }
 
 bool Ping::recvpacket(ping_result& pingresult){
-	struct fd_set fdset;
+	fd_set fdset;
 	FD_ZERO(&fdset);
 	struct timeval timeout;
-	timeout.tv_sec = 0, timeout.tv_usec = 5;
+	timeout.tv_sec = 5, timeout.tv_usec = 0;
 	struct icmp_echo_reply icmpechoreply;
 	int fdnum = 0, length = 0;
-	char* recvpacket;
 	socklen_t fromaddrlen = sizeof(m_from_addr);
 	for(int i=0; i<3; i++){
 		FD_SET(m_sockfd, &fdset);
@@ -129,20 +135,20 @@ bool Ping::recvpacket(ping_result& pingresult){
 			continue;
 		}
 		if(FD_ISSET(m_sockfd, &fdset)){
-			length = recvfrom(m_sockfd, recvpacket, sizeof(char*)*4096, 0,(struct sockaddr*)&m_from_addr, &fromaddrlen );
+			length = recvfrom(m_sockfd, this->m_recvpacket, sizeof(char*)*4096, 0,(struct sockaddr*)&m_from_addr, &fromaddrlen );
 			if(length < 0){
 				if(errno == EINTR)
 					continue;
 				perror("recvfrom error");
 				continue;
 			}
-			icmpechoreply.addr = inet_ntoa(m_from_addr);
+			icmpechoreply.addr = inet_ntoa(m_from_addr.sin_addr);
 			if(icmpechoreply.addr != pingresult.ip){
 				i--;
 				continue;
 			}
 		}
-		if(unpackIcmp(recvpacket, sizeof(char*)*4096, &icmpechoreply) == -1){
+		if(unpackIcmp(m_recvpacket, sizeof(char*)*4096, &icmpechoreply) == -1){
 			i--;
 			continue;
 		}
@@ -154,9 +160,41 @@ bool Ping::recvpacket(ping_result& pingresult){
 }
 
 bool Ping::unpackIcmp(const char* recvpacket, int packlen, icmp_echo_reply* icmpechoreply){
-
+	struct ip* Ip;
+	struct icmp* Icmp;
+	struct timeval *tvsend, tvrecv, tvresult;
+	Ip = (struct ip*)recvpacket;
+	Icmp = (struct icmp*)(recvpacket + Ip->ip_hl*4);
+	packlen -= Ip->ip_hl*4;
+	if(packlen < 8){
+		cout<<"ICMP 报文长度出错"<<endl;
+		return false;
+	}
+	if (Icmp->icmp_type == ICMP_ECHOREPLY && Icmp->icmp_hun.ih_idseq.icd_id == m_pid) {
+		tvsend = (struct timeval *) Icmp->icmp_dun.id_data;
+		gettimeofday(&tvrecv, NULL);
+		tvresult = tvsub(tvrecv, *tvsend);
+		icmpechoreply->rtt = tvresult.tv_sec * 1000 + tvresult.tv_usec / 1000;;
+		icmpechoreply->seq = Icmp->icmp_seq;
+		icmpechoreply->ttl = Ip->ip_ttl;
+		icmpechoreply->len = packlen;
+		return true;
+	}
+	else {
+		return false;
+	}
 }
 
+struct timeval Ping::tvsub(timeval tv1, timeval tv2){
+	struct timeval result = tv1;
+	if(tv1.tv_usec<tv2.tv_usec){
+		result.tv_sec--;
+		result.tv_usec += 1000000;
+	}
+	result.tv_sec -= tv2.tv_sec;
+	result.tv_usec -= tv2.tv_usec;
+	return result;
+}
 
 
 

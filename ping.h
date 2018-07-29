@@ -17,21 +17,13 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <netinet/ip.h>
+#include <netinet/in.h>
 #include <netinet/ip_icmp.h>
 #include <netdb.h>
 #include <stdio.h>
 #include <errno.h>
 
 using namespace std;
-
-struct ping_result{
-	int has_sent;
-	int has_received;
-	int datalen;
-	string ip;
-	string error_information;
-	vector<icmp_echo_reply> IcmpEchoReplys;
-};
 
 struct icmp_echo_reply{
 	int seq;
@@ -42,6 +34,16 @@ struct icmp_echo_reply{
 	string addr;
 };
 
+struct ping_result{
+	int has_sent;
+	int has_received;
+	int datalen;
+	string ip;
+	string error_information;
+	vector<icmp_echo_reply> IcmpEchoReplys;
+};
+
+
 class Ping{
 private:
 	int m_datalen;
@@ -51,19 +53,22 @@ private:
 	int m_maxpacketsize;
 	pid_t m_pid;
 	int m_sockfd;
-	sockaddr_in* m_dest_addr;
-	sockaddr_in* m_from_addr;
+	sockaddr_in m_dest_addr;
+	sockaddr_in m_from_addr;
+	char m_sendpacket[4096];
+	char m_recvpacket[4096];
 
-	bool ping(string& host_or_ip, int maxpacketsize, ping_result& pingresult);
 	bool getsockaddr(const string& host_or_ip);
 	bool sendpacket();
 	bool recvpacket(ping_result& pingresult);
 	int packIcmp(int seq, struct icmp* icmppac);
 	unsigned short getcksum(unsigned short* icmppac, int packsize);
-	int unpackIcmp(const char* recvpacket, int len, icmp_echo_reply* icmpechoreply);
+	bool unpackIcmp(const char* recvpacket, int len, icmp_echo_reply* icmpechoreply);
+	struct timeval tvsub(struct timeval tv1, timeval tv2);
 public:
 	Ping();
 	~Ping(){}
+	bool ping(string& host_or_ip, int maxpacketsize, ping_result& pingresult);
 };
 
 
